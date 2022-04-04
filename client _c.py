@@ -1,4 +1,9 @@
+# WS client example
 
+#-----------------------------------------------------------------------#
+#   predict.py将单张图片预测、摄像头检测、FPS测试和目录遍历检测等功能
+#   整合到了一个py文件中，通过指定mode进行模式的修改。
+#-----------------------------------------------------------------------#
 import time
 
 import cv2
@@ -15,41 +20,90 @@ yolo = YOLO()
 async def node_detect():
     uri = "ws://10.21.6.14:8765"
     async with websockets.connect(uri) as websocket:
+        # ----------------------------------------------------------------------------------------------------------#
         mode = "video"
+        # ----------------------------------------------------------------------------------------------------------#
+        #   video_path用于指定视频的路径，当video_path=0时表示检测摄像头
+        #   想要检测视频，则设置如video_path = "xxx.mp4"即可，代表读取出根目录下的xxx.mp4文件。
+        #   video_save_path表示视频保存的路径，当video_save_path=""时表示不保存
+        #   想要保存视频，则设置如video_save_path = "yyy.mp4"即可，代表保存为根目录下的yyy.mp4文件。
+        #   video_fps用于保存的视频的fps
+        #   video_path、video_save_path和video_fps仅在mode='video'时有效
+        #   保存视频时需要ctrl+c退出或者运行到最后一帧才会完成完整的保存步骤。
+        # ----------------------------------------------------------------------------------------------------------#
         video_path = "./img/aiport_out.mp4"
         video_save_path = "res.mp4"
         video_fps = 25.0
+        # -------------------------------------------------------------------------#
+        #   test_interval用于指定测量fps的时候，图片检测的次数
+        #   理论上test_interval越大，fps越准确。
+        # -------------------------------------------------------------------------#
         test_interval = 100
+        # -------------------------------------------------------------------------#
+        #   dir_origin_path指定了用于检测的图片的文件夹路径
+        #   dir_save_path指定了检测完图片的保存路径
+        #   dir_origin_path和dir_save_path仅在mode='dir_predict'时有效
+        # -------------------------------------------------------------------------#
         dir_origin_path = "img/"
         dir_save_path = "img_out/"
         bottom_dist = [0, 0, 0, 0, 0]
+        # -------------------------------------------------------------------------#
+        #   nodes 的定义列表
+        # -------------------------------------------------------------------------#
         nodes = ["aeroplane out",
                  "aeroplane in place",
                  "dining_car out",
                  "catering",
                  "refueling_truck out",
                  "refueling", ]
+        # -------------------------------------------------------------------------#
+        #   可视化区域属性自定义
+        #   ptCenter中心点位置
+        #   axesSize长轴半径为 90，短轴半径为 60
+        #   旋转角度为
+        # -------------------------------------------------------------------------#
         font = cv2.FONT_ITALIC
         ptCenter = (896, 166)
         axesSize = (365, 86)
         rotateAngle = 0
         startAngle = 0
         endAngle = 360
+        # -------------------------------------------------------------------------#
+        #   保障节点展示位置
+        # -------------------------------------------------------------------------#
         playnodes = [(16, 200), (16, 230), (16, 260)]
+        # -------------------------------------------------------------------------#
+        #   画保障节点前边的圆圈
+        # -------------------------------------------------------------------------#
         point_color = (0, 255, 0)
         thickness = 1
         lineType = 4
         font = cv2.FONT_ITALIC
         coord_play = [(4, 194), (4, 224), (4, 254)]
+        # -------------------------------------------------------------------------#
+        #  init 初始化
+        # -------------------------------------------------------------------------#
         bottom_dist = [0, 0, 0, 0, 0]
         center_l = [0, 0, 0, 0, 0]
         center_ref_truck = [0, 0, 0, 0, 0]
         state_flow = [0, 0, 0]
+        # ---------------------------------------------------------#
+        #   将图像输入网络当中进行预测！
+        # ---------------------------------------------------------#
         npz_data = np.load('./model_data/grid_date_26985.npz', allow_pickle=True)
         coord, id = npz_data['coord'], npz_data['id']
+        # # 根据坐标，找出对应区域
         id_Position = [tuple(k) for k in npz_data['id']]
 
         if mode == "predict":
+            '''
+            1、如果想要进行检测完的图片的保存，利用r_image.save("img.jpg")即可保存，直接在predict.py里进行修改即可。 
+            2、如果想要获得预测框的坐标，可以进入yolo.detect_image函数，在绘图部分读取top，left，bottom，right这四个值。
+            3、如果想要利用预测框截取下目标，可以进入yolo.detect_image函数，在绘图部分利用获取到的top，left，bottom，right这四个值
+            在原图上利用矩阵的方式进行截取。
+            4、如果想要在预测图上写额外的字，比如检测到的特定目标的数量，可以进入yolo.detect_image函数，在绘图部分对predicted_class进行判断，
+            比如判断if predicted_class == 'car': 即可判断当前目标是否为车，然后记录数量即可。利用draw.text即可写字。
+            '''
             while True:
                 img = input('Input image filename:')
                 try:
@@ -75,13 +129,18 @@ async def node_detect():
             fps = 0.0
             while (True):
                 t1 = time.time()
+                # 读取某一帧
                 ref, frame = capture.read()
                 if not ref:
                     break
+                # 格式转变，BGRtoRGB
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                # 转变成Image
                 frame = Image.fromarray(np.uint8(frame))
+                # 进行检测
                 frame1, out_boxes, out_classes = yolo.detect_image(frame)
                 frame = np.array(frame1)
+                # node logic
                 label_set = set(out_classes.tolist())
                 class_names = ["aeroplane", "dining_car", "refueling_truck"]
                 for i, c in list(enumerate(out_classes)):
@@ -103,6 +162,7 @@ async def node_detect():
 
                 if 0 in out_classes.tolist():
                     for i, c in list(enumerate(out_classes)):
+                        # 检测飞机的入位情况
                         if c == 0:
                             bottom_center = [int(out_boxes[i][1] + (out_boxes[i][3] - out_boxes[i][1]) / 2),
                                              int(out_boxes[i][2])]
@@ -114,6 +174,7 @@ async def node_detect():
                             delta = out_boxes[i][2] - mean(bottom_dist)
                             print("delta%s" % delta)
 
+                            # 飞机就位logic
                             if (bool_aeroplan == False) or (bool_aeroplan == True and delta > 1 and end_dis > 280) or \
                                     (bool_aeroplan == True and delta < -1 and end_dis > 280):
                                 frame = cv2.putText(frame, nodes[0], playnodes[0], font, 1, (0, 0, 255), thickness=2, )
@@ -122,6 +183,7 @@ async def node_detect():
                                 frame = cv2.putText(frame, nodes[1], playnodes[0], font, 1, (0, 0, 255), thickness=2, )
                                 state_flow[0] = 1
 
+                        # 餐车的计算
                         elif int(c) == 1:
                             center = (int(out_boxes[i][1] + (out_boxes[i][3] - out_boxes[i][1]) / 2),
                                       int(out_boxes[i][0] + (out_boxes[i][2] - out_boxes[i][0]) / 2))
@@ -135,6 +197,7 @@ async def node_detect():
                             bool_dining_out = (
                                 isPoiWithinBox(list(center_l_c), [[246, 254], [1550, 706]], toler=0.0001))
 
+                            # 餐车配餐逻辑
                             if (bool_dining == False) or (bool_dining == False and bool_dining_out == False):
                                 frame = cv2.putText(frame, nodes[2], playnodes[1], font, 1, (0, 0, 255), thickness=2, )
                                 state_flow[1] = 0
@@ -142,6 +205,7 @@ async def node_detect():
                                 frame = cv2.putText(frame, nodes[3], playnodes[1], font, 1, (0, 255, 0), thickness=2, )
                                 state_flow[1] = 1
 
+                        # 对燃油车车进行检测判断
                         elif int(c) == 2:
                             center_truck = (int(out_boxes[i][1] + (out_boxes[i][3] - out_boxes[i][1]) / 2),
                                             int(out_boxes[i][0] + (out_boxes[i][2] - out_boxes[i][0]) / 2))
@@ -165,15 +229,22 @@ async def node_detect():
                     print(state_flow)
                     name = str(state_flow[0]) + "," + str(state_flow[1]) + "," + str(state_flow[2])
                     await websocket.send(name)
+                    #print(f"> {name}")
+                    print("发送给服务端的信息：%s"%name)
                     greeting = await websocket.recv()
+                    #print(f"< {greeting}")
                 else:
                     state_flow = [0, 0, 0]
                     print("aeroplane:dining_car:refueling_truck" % state_flow)
                     print("There are no aeroplane on the apron ")
                     name = str(state_flow[0]) + "," + str(state_flow[1]) + "," + str(state_flow[2])
                     await websocket.send(name)
-                    greeting = await websocket.recv()
+                    #print(f"> {name}")
 
+                    greeting = await websocket.recv()
+                    #print(f"< {greeting}")
+
+                # 在视频上画网格和ID
                 for i in range(coord.shape[0]):
                     cv2.line(frame, tuple(coord[i][0]), tuple(coord[i][1]), point_color, thickness, lineType)
                 id_data = dict()
@@ -181,9 +252,10 @@ async def node_detect():
                     id_data[id_num] = tuple(id_coor)
                     frame = cv2.putText(frame, str(id_num), tuple(id_coor), font, 0.5, (0, 0, 0), thickness=1, )
 
-
+                # 在节点前画圆圈
                 for center_p in coord_play:
                     cv2.circle(frame, center_p, 8, (0, 0, 255), thickness, lineType)
+                # RGBtoBGR满足opencv显示格式
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                 cv2.ellipse(frame, ptCenter, axesSize, rotateAngle, startAngle, endAngle, point_color, thickness,
                             lineType)
@@ -191,6 +263,7 @@ async def node_detect():
                 print("fps= %.2f" % (fps))
                 frame = cv2.putText(frame, "fps= %.2f" % (fps), (0, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
+                #cv2.imshow("video", frame)
                 c = cv2.waitKey(1) & 0xff
                 if video_save_path != "":
                     out.write(frame)
